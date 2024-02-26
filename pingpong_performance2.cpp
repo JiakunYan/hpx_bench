@@ -239,7 +239,7 @@ void run_bench()
             msg_rate = static_cast<double>(((config.nsteps + 1) / 2) * config.nchains * config.niters) /
                        time / 1e3;
         } else {
-            msg_rate = static_cast<double>(config.nsteps * (config.nchains + 1 / 2) * config.niters) /
+            msg_rate = static_cast<double>(config.nsteps * ((config.nchains + 1) / 2) * config.niters) /
                        time / 1e3;
         }
         double bandwidth = static_cast<double>(config.nbytes) * msg_rate / 1e3;
