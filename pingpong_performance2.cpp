@@ -32,9 +32,10 @@ const std::size_t batch_size_default = 10;
 const std::size_t nwarmups_default = 1;
 const std::size_t niters_default = 1;
 const std::size_t intensity_default = 0;
+const std::size_t task_comp_time_us_default = 0;
+const std::size_t intensity_eval_time_s_default = 1;
 const bool is_single_source_default = false;
 const bool verbose_default = true;
-const bool enable_comp_timer_default = false;
 
 struct config_t
 {
@@ -46,15 +47,14 @@ struct config_t
     size_t nwarmups;
     size_t niters;
     size_t intensity;
+    size_t task_comp_time_us;
+    size_t intensity_eval_time_s;
     bool is_single_source;
     bool verbose;
-    bool enable_comp_timer;
 } config;
 size_t nchains_per_rank;
 hpx::id_type here;
 hpx::id_type peer;
-uint64_t total_comp_time = 0;
-int64_t comp_time_count = 0;
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -75,18 +75,31 @@ HPX_PLAIN_ACTION(on_done, on_done_action)
 
 static inline void kernel_fma(double *T, size_t size, int intensity, int t)
 {
-    uint64_t start = 0;
-    if (config.enable_comp_timer) {
-        start = hpx::chrono::high_resolution_clock::now();
-    }
     for (int j = 0; j < intensity; ++j)
         for (int i = 0; i < size; ++i) {
             //  T[i] = T[i] * t + j
             T[i] = fma(T[i], (double) t, (double) j);
         }
-    if (config.enable_comp_timer) {
-        total_comp_time += hpx::chrono::high_resolution_clock::now() - start;
-        ++comp_time_count;
+}
+
+void evaluate_kernal()
+{
+    if (config.task_comp_time_us == 0 && config.intensity == 0)
+        return;
+    std::vector<double> data(config.nbytes / sizeof(double), 1);
+    hpx::chrono::high_resolution_timer timer_eval;
+    int intensity = 0;
+    do {
+        int j = ++intensity;
+        for (int i = 0; i < data.size(); ++i) {
+            //  T[i] = T[i] * t + j
+            data[i] = fma(data[i], (double) j, (double) j);
+        }
+    } while (timer_eval.elapsed() <= config.intensity_eval_time_s);
+    if (config.task_comp_time_us > 0) {
+        config.intensity = (double)config.task_comp_time_us * (double) intensity / (double)config.intensity_eval_time_s / 1e6;
+    } else {
+        config.task_comp_time_us = (double) config.intensity * (double)config.intensity_eval_time_s * 1e6 / (double) intensity;
     }
 }
 
@@ -189,10 +202,6 @@ void run_bench()
     {
         if (!config.is_single_source)
             barrier();
-        if (j == config.nwarmups) {
-            total_comp_time = 0;
-            comp_time_count = 0;
-        }
         //            hpx::distributed::barrier::synchronize();
         hpx::chrono::high_resolution_timer timer_total;
         for (size_t i = 0; i < nchains_per_rank; i += config.batch_size)
@@ -243,10 +252,9 @@ void run_bench()
                        time / 1e3;
         }
         double bandwidth = static_cast<double>(config.nbytes) * msg_rate / 1e3;
-        double comp_efficiency = 0;
-        if (config.enable_comp_timer) {
-            comp_efficiency = (total_comp_time * 1e-9) / (time * hpx::get_os_thread_count());
-        }
+        double total_core_time = time * localities.size() * hpx::get_os_thread_count();
+        double total_task_time = config.task_comp_time_us * config.niters * config.nchains * config.nsteps / 1e6;
+        double comp_efficiency = total_task_time / total_core_time;
         if (config.verbose)
         {
             std::cout << "[hpx_pingpong]" << std::endl
@@ -257,11 +265,12 @@ void run_bench()
                       << "nbytes=" << config.nbytes << std::endl
                       << "nchains=" << config.nchains << std::endl
                       << "nsteps=" << config.nsteps << std::endl
-                      << "intensity=" << config.intensity << std::endl
                       << "is_single_source=" << config.is_single_source << std::endl;
-            if (config.enable_comp_timer) {
-                std::cout << "total_comp_time(s)=" << total_comp_time * 1e-9 << std::endl
-                          << "comp_time_per_task(us)=" << total_comp_time * 1e-3 / static_cast<double>(comp_time_count) << std::endl
+            if (config.intensity) {
+                std::cout << "intensity=" << config.intensity << std::endl
+                          << "comp_time_per_task(us)=" << config.task_comp_time_us << std::endl
+                          << "total_task_time(s)=" << total_task_time << std::endl
+                          << "total_core_time(s)=" << total_core_time << std::endl
                           << "comp_efficiency=" << comp_efficiency << std::endl;
             }
             std::cout << "latency(us)=" << latency << std::endl
@@ -279,14 +288,15 @@ void run_bench()
                       << ":niters=" << config.niters
                       << ":nchains=" << config.nchains
                       << ":nsteps=" << config.nsteps
-                      << ":intensity=" << config.intensity;
-            if (config.enable_comp_timer) {
-                std::cout << ":total_comp_time(s)=" << total_comp_time * 1e-9
-                          << ":comp_time_per_task(us)=" << total_comp_time * 1e-3 / static_cast<double>(comp_time_count)
+                      << ":is_single_source=" << config.is_single_source;
+            if (config.intensity) {
+                std::cout << ":intensity=" << config.intensity
+                          << ":comp_time_per_task(us)=" << config.task_comp_time_us
+                          << ":total_task_time(s)=" << total_task_time
+                          << ":total_core_time(s)=" << total_core_time
                           << ":comp_efficiency=" << comp_efficiency;
             }
-            std::cout << ":is_single_source=" << config.is_single_source
-                      << ":latency(us)=" << latency
+            std::cout << ":latency(us)=" << latency
                       << ":inject_rate(K/s)=" << achieved_inject_rate
                       << ":msg_rate(M/s)=" << msg_rate
                       << ":bandwidth(MB/s)=" << bandwidth << std::endl;
@@ -309,9 +319,12 @@ int hpx_main(hpx::program_options::variables_map& b_arg)
     config.nwarmups = b_arg["nwarmups"].as<std::size_t>();
     config.niters = b_arg["niters"].as<std::size_t>();
     config.intensity = b_arg["intensity"].as<std::size_t>();
+    config.task_comp_time_us = b_arg["task-comp-time"].as<std::size_t>();
+    config.intensity_eval_time_s = b_arg["intensity-eval-time"].as<std::size_t>();
     config.is_single_source = b_arg["is-single-source"].as<bool>();
     config.verbose = b_arg["verbose"].as<bool>();
-    config.enable_comp_timer = b_arg["enable-comp-timer"].as<bool>();
+
+    evaluate_kernal();
 
     if (config.nsteps == 0)
     {
@@ -383,15 +396,18 @@ int main(int argc, char* argv[])
                                                                     ("intensity",
                                                                      po::value<std::size_t>()->default_value(intensity_default),
                                                                      "the computation intensity.")
+                                                                            ("task-comp-time",
+                                                                             po::value<std::size_t>()->default_value(task_comp_time_us_default),
+                                                                             "the computation time per task (us).")
+                                                                                    ("intensity-eval-time",
+                                                                                     po::value<std::size_t>()->default_value(intensity_eval_time_s_default),
+                                                                                     "time to evaluate the intensity/comp_time relation (s).")
                                                                     ("is-single-source",
                                                                      po::value<bool>()->default_value(is_single_source_default),
                                                                      "Spawn all message chains from a single source or not")
                                                                             ("verbose",
                                                                              po::value<bool>()->default_value(verbose_default),
-                                                                             "verbosity of output,if false output is for awk")
-                                                                            ("enable-comp-timer",
-                                                                             po::value<bool>()->default_value(enable_comp_timer_default),
-                                                                             "Enable the computation timer.");
+                                                                             "verbosity of output,if false output is for awk");
 
     hpx::init_params init_args;
     init_args.desc_cmdline = description;

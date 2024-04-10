@@ -2,7 +2,6 @@
 #include <time.h>
 #include <stdio.h>
 #include <math.h>
-#include <sys/random.h>
 
 static inline double mytime(void)
 {
@@ -13,10 +12,8 @@ static inline double mytime(void)
 
 static inline void generate_data(double * T, int size)
 {
-    unsigned short state[3];
-    getrandom(state, sizeof(state), 0);
     for (int i = 0; i < size; i++) {
-        T[i] = erand48(state);
+        T[i] = rand();
     }
 }
 

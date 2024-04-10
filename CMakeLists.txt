@@ -17,3 +17,5 @@ target_link_libraries(test_kernel)
 install(
         TARGETS pingpong_performance2 test_kernel
         DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+add_subdirectory(test_tls)
