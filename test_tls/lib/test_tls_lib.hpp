@@ -1,6 +1,0 @@
-#ifndef HPX_BENCH_TEST_TLS_LIB_HPP
-#define HPX_BENCH_TEST_TLS_LIB_HPP
-
-int test();
-
-#endif//HPX_BENCH_TEST_TLS_LIB_HPP

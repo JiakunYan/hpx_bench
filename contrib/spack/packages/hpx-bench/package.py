@@ -12,3 +12,4 @@ class HpxBench(CMakePackage):
     version('master', branch='master')
 
     depends_on("hpx")
+    depends_on("fftw")

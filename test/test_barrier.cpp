@@ -26,33 +26,34 @@
 void run_test();
 HPX_PLAIN_ACTION(run_test, run_test_action)
 
-void run_test() {
-    fprintf(stderr, "%d: run_test\n", hpx::get_locality_id());
-    hpx::distributed::barrier::synchronize();
+void run_test()
+{
+  fprintf(stderr, "%d: run_test\n", hpx::get_locality_id());
+  hpx::distributed::barrier::synchronize();
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 int hpx_main(hpx::program_options::variables_map& b_arg)
 {
-    std::vector<hpx::future<void>> futs;
-    for (auto l : hpx::find_all_localities()) {
-        futs.emplace_back(hpx::async<run_test_action>(l));
-    }
-    hpx::wait_all(futs);
+  std::vector<hpx::future<void>> futs;
+  for (auto l : hpx::find_all_localities()) {
+    futs.emplace_back(hpx::async<run_test_action>(l));
+  }
+  hpx::wait_all(futs);
 
-    hpx::finalize();
-    return 0;
+  hpx::finalize();
+  return 0;
 }
 
 int main(int argc, char* argv[])
 {
-    namespace po = hpx::program_options;
-    po::options_description description("HPX test barrier");
+  namespace po = hpx::program_options;
+  po::options_description description("HPX test barrier");
 
-    hpx::init_params init_args;
-    init_args.desc_cmdline = description;
+  hpx::init_params init_args;
+  init_args.desc_cmdline = description;
 
-    return hpx::init(argc, argv, init_args);
+  return hpx::init(argc, argv, init_args);
 }
 
 #endif
